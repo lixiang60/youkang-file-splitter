@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: youkang-file-splitter
+  main:
+    web-application-type: none
+    banner-mode: "off"
+
+splitter:
+  inbox-dir: /data/youkang/inbox
+  work-dir: /data/youkang/work
+  output-dir: /data/youkang/output
+  failed-dir: /data/youkang/failed
+  archive-dir: /data/youkang/archive
+  scan-cron: "0 */1 * * * ?"
+  ready-check-interval-seconds: 10
+  sqlite-path: /data/youkang/splitter/records.db
+  delete-after-archive: false
+  retry-times: 3
+  retry-interval-ms: 2000
+
+logging:
+  file:
+    name: /data/youkang/splitter/logs/splitter.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 30
+      total-size-cap: 5GB
+  level:
+    root: INFO
+    com.youkang.splitter: INFO

@@ -1,0 +1,16 @@
+[Unit]
+Description=Youkang File Splitter Service
+After=network.target
+
+[Service]
+Type=simple
+User=youkang
+WorkingDirectory=/opt/youkang-splitter
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /opt/youkang-splitter/youkang-file-splitter.jar --spring.config.location=file:/opt/youkang-splitter/application.yml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

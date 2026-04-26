@@ -1,0 +1,19 @@
+# 开发环境配置（Windows 本地端到端测试使用）
+splitter:
+  inbox-dir: D:/youkang/splitter/inbox
+  work-dir: D:/youkang/splitter/work
+  output-dir: D:/youkang/splitter/output
+  failed-dir: D:/youkang/splitter/failed
+  archive-dir: D:/youkang/splitter/archive
+  scan-cron: "0/30 * * * * ?"
+  ready-check-interval-seconds: 5
+  sqlite-path: D:/youkang/splitter/records.db
+  delete-after-archive: false
+  retry-times: 3
+  retry-interval-ms: 1000
+
+logging:
+  file:
+    name: D:/youkang/splitter/logs/splitter.log
+  level:
+    com.youkang.splitter: DEBUG
