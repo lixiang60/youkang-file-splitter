@@ -73,8 +73,7 @@ public class SplitTaskRunner {
         }
 
         // 2. 初始化任务记录
-        Long recordId = taskRecorder.start(zipName, zipSize);
-        String taskId = recordId != null ? null : UUID.randomUUID().toString();
+        String taskId = taskRecorder.start(zipName, zipSize);
         SplitOutcome outcome = new SplitOutcome();
         outcome.setTaskId(taskId);
         outcome.setZipName(zipName);
@@ -123,10 +122,10 @@ public class SplitTaskRunner {
             // 8. 状态判定
             if (batchResult.getSampleFailed() > 0) {
                 outcome.setStatus("PARTIAL_SUCCESS");
-                taskRecorder.markPartial(recordId, taskId, outcome);
+                taskRecorder.markPartial(taskId, outcome);
             } else {
                 outcome.setStatus("SUCCESS");
-                taskRecorder.complete(recordId, taskId, outcome);
+                taskRecorder.complete(taskId, outcome);
             }
 
         } catch (Exception e) {
@@ -134,7 +133,7 @@ public class SplitTaskRunner {
             outcome.setStatus("FAILED");
             outcome.setErrorMessage(truncate(e.getMessage()));
             moveToFailed(zipFile);
-            taskRecorder.markFailed(recordId, taskId, zipName, outcome.getErrorMessage());
+            taskRecorder.markFailed(taskId, zipName, outcome.getErrorMessage());
         } finally {
             // 9. 清理工作目录
             if (workDir != null) {

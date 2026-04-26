@@ -50,9 +50,8 @@
         </rollingPolicy>
     </appender>
 
-    <logger name="com.youkang.splitter.runner" level="INFO" additivity="false">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE"/>
+    <!-- 任务执行轨迹单独记录，不混入主日志 -->
+    <logger name="com.youkang.splitter.TASK" level="INFO" additivity="false">
         <appender-ref ref="TASK_FILE"/>
     </logger>
 

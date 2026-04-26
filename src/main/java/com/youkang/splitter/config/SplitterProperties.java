@@ -37,13 +37,9 @@ public class SplitterProperties {
     @NotBlank
     private String archiveDir;
 
-    /** 任务记录数据库路径 */
-    @NotBlank
-    private String sqlitePath;
-
     /** 扫描 cron 表达式 */
     @NotBlank
-    private String scanCron = "0 */1 * * * ?";
+    private String scanCron = "0 0 */1 * * ?";
 
     /** 文件就绪检测两次大小比对的间隔（秒） */
     @Min(1)

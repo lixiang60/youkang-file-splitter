@@ -1,10 +1,9 @@
 package com.youkang.splitter.service;
 
 import com.youkang.splitter.domain.SplitOutcome;
-import com.youkang.splitter.domain.SplitTaskRecord;
-import com.youkang.splitter.repository.SplitTaskRecordRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -12,117 +11,80 @@ import java.util.UUID;
 
 /**
  * 任务记录写入器
- * 封装 SQLite 任务持久化，写失败不影响主链路
+ * 通过独立日志文件（splitter.log.task）记录每次 zip 任务的执行轨迹
  *
  * @author youkang
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TaskRecorder {
 
-    private final SplitTaskRecordRepository repository;
+    /**
+     * 独立的任务日志 Logger，输出到 TASK_FILE appender
+     */
+    private static final Logger TASK_LOGGER = LoggerFactory.getLogger("com.youkang.splitter.TASK");
 
     /**
-     * 开始一个新任务，生成 UUID，写入初始记录，返回主键
+     * 开始一个新任务，生成 UUID 并记录 START 日志
+     *
+     * @return taskId（UUID）
      */
-    public Long start(String zipName, long zipSizeBytes) {
-        try {
-            SplitTaskRecord record = new SplitTaskRecord();
-            record.setTaskId(UUID.randomUUID().toString());
-            record.setZipName(zipName);
-            record.setZipSizeBytes(zipSizeBytes);
-            record.setStartTime(LocalDateTime.now());
-            record.setStatus("RUNNING");
-            return repository.insert(record);
-        } catch (Exception e) {
-            log.error("写入任务初始记录失败：zipName={}", zipName, e);
-            return null;
-        }
+    public String start(String zipName, long zipSizeBytes) {
+        String taskId = UUID.randomUUID().toString();
+        TASK_LOGGER.info("[TASK][START] taskId={} | zipName={} | zipSizeBytes={} | startTime={}",
+                taskId, zipName, zipSizeBytes, LocalDateTime.now());
+        return taskId;
     }
 
     /**
-     * 标记任务为失败
+     * 标记任务为成功
      */
-    public void markFailed(Long recordId, String taskId, String zipName, String errorMessage) {
-        try {
-            if (recordId == null) {
-                recordId = resolveRecordId(taskId, zipName);
-            }
-            if (recordId == null) {
-                log.warn("无法定位任务记录，放弃标记失败：taskId={}, zipName={}", taskId, zipName);
-                return;
-            }
-            SplitTaskRecord record = repository.findById(recordId);
-            if (record == null) {
-                return;
-            }
-            record.setEndTime(LocalDateTime.now());
-            record.setDurationMs(computeDuration(record.getStartTime()));
-            record.setStatus("FAILED");
-            record.setErrorMessage(truncate(errorMessage, 2000));
-            repository.update(record);
-        } catch (Exception e) {
-            log.error("标记任务失败记录异常：recordId={}", recordId, e);
-        }
+    public void complete(String taskId, SplitOutcome outcome) {
+        TASK_LOGGER.info(buildCompleteLog(taskId, outcome));
     }
 
     /**
      * 标记任务为部分成功（存在个别样品异常）
      */
-    public void markPartial(Long recordId, String taskId, SplitOutcome outcome) {
-        complete(recordId, taskId, outcome);
+    public void markPartial(String taskId, SplitOutcome outcome) {
+        TASK_LOGGER.warn(buildCompleteLog(taskId, outcome));
     }
 
     /**
-     * 完成任务记录更新
+     * 标记任务为失败
      */
-    public void complete(Long recordId, String taskId, SplitOutcome outcome) {
-        try {
-            if (recordId == null) {
-                recordId = resolveRecordId(taskId, outcome.getZipName());
-            }
-            if (recordId == null) {
-                log.warn("无法定位任务记录，放弃完成标记：taskId={}", taskId);
-                return;
-            }
-            SplitTaskRecord record = repository.findById(recordId);
-            if (record == null) {
-                return;
-            }
-            record.setEndTime(LocalDateTime.now());
-            record.setDurationMs(computeDuration(record.getStartTime()));
-            record.setStatus(outcome.getStatus());
-            record.setOrderCount(outcome.getOrderCount());
-            record.setSampleTotal(outcome.getSampleTotal());
-            record.setSampleNormal(outcome.getSampleNormal());
-            record.setSampleEmpty(outcome.getSampleEmpty());
-            record.setSampleFailed(outcome.getSampleFailed());
-            record.setOutputZipPath(outcome.getOutputZipPath());
-            if (outcome.getSampleFailed() > 0 && !outcome.getSampleErrorMessages().isEmpty()) {
-                record.setErrorMessage(truncate(String.join("; ", outcome.getSampleErrorMessages()), 2000));
-            }
-            repository.update(record);
-        } catch (Exception e) {
-            log.error("完成任务记录更新异常：recordId={}", recordId, e);
-        }
+    public void markFailed(String taskId, String zipName, String errorMessage) {
+        TASK_LOGGER.error("[TASK][FAILED] taskId={} | zipName={} | endTime={} | errorMessage={}",
+                taskId, zipName, LocalDateTime.now(), truncate(errorMessage, 2000));
     }
 
-    private Long resolveRecordId(String taskId, String zipName) {
-        if (taskId != null) {
-            SplitTaskRecord rec = repository.findByTaskId(taskId);
-            if (rec != null) {
-                return rec.getId();
-            }
+    private String buildCompleteLog(String taskId, SplitOutcome outcome) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[TASK][COMPLETE] taskId=").append(taskId);
+        sb.append(" | zipName=").append(outcome.getZipName());
+        sb.append(" | status=").append(outcome.getStatus());
+        sb.append(" | startTime=").append(outcome.getStartTime());
+        sb.append(" | endTime=").append(LocalDateTime.now());
+        sb.append(" | durationMs=").append(computeDuration(outcome));
+        sb.append(" | orderCount=").append(outcome.getOrderCount());
+        sb.append(" | sampleTotal=").append(outcome.getSampleTotal());
+        sb.append(" | sampleNormal=").append(outcome.getSampleNormal());
+        sb.append(" | sampleEmpty=").append(outcome.getSampleEmpty());
+        sb.append(" | sampleFailed=").append(outcome.getSampleFailed());
+        if (outcome.getOutputZipPath() != null) {
+            sb.append(" | outputZipPath=").append(outcome.getOutputZipPath());
         }
-        return null;
+        if (!outcome.getSampleErrorMessages().isEmpty()) {
+            sb.append(" | sampleErrors=").append(String.join("; ", outcome.getSampleErrorMessages()));
+        }
+        return sb.toString();
     }
 
-    private Long computeDuration(LocalDateTime startTime) {
-        if (startTime == null) {
+    private Long computeDuration(SplitOutcome outcome) {
+        if (outcome.getStartTime() == null) {
             return 0L;
         }
-        return java.time.Duration.between(startTime, LocalDateTime.now()).toMillis();
+        return java.time.Duration.between(outcome.getStartTime(), LocalDateTime.now()).toMillis();
     }
 
     private String truncate(String s, int maxLength) {

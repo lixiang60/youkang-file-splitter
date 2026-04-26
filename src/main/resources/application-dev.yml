@@ -1,13 +1,17 @@
 # 开发环境配置（Windows 本地端到端测试使用）
 splitter:
+  # 入口目录：用户上传 zip 的位置
   inbox-dir: D:/youkang/splitter/inbox
+  # 工作目录：解压与中间产物
   work-dir: D:/youkang/splitter/work
+  # 输出目录：拆分后的 zip 输出
   output-dir: D:/youkang/splitter/output
+  # 失败目录：异常的原始 zip 隔离归档
   failed-dir: D:/youkang/splitter/failed
+  # 归档目录：成功处理后的原始 zip 归档
   archive-dir: D:/youkang/splitter/archive
   scan-cron: "0/30 * * * * ?"
   ready-check-interval-seconds: 5
-  sqlite-path: D:/youkang/splitter/records.db
   delete-after-archive: false
   retry-times: 3
   retry-interval-ms: 1000
