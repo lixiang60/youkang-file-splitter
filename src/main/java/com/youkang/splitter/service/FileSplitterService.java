@@ -46,29 +46,47 @@ public class FileSplitterService {
         }
 
         for (Path orderDir : orderDirs) {
-            String orderName = orderDir.getFileName().toString();
-            Path targetOrderDir = splitDir.resolve(orderName);
-            Files.createDirectories(targetOrderDir);
-
-            List<Path> sampleDirs = listDirectories(orderDir);
-            for (Path sampleDir : sampleDirs) {
-                String sampleName = sampleDir.getFileName().toString();
-                String relativeKey = orderName + "/" + sampleName;
-                Path targetSampleDir = targetOrderDir.resolve(sampleName);
-
-                try {
-                    SampleFolderClassification classification = splitSample(sampleDir, targetSampleDir);
-                    result.addClassification(relativeKey, classification);
-                    log.debug("样品拆分完成：{} -> {}", relativeKey, classification);
-                } catch (Exception e) {
-                    log.error("样品拆分异常：{}", relativeKey, e);
-                    result.addClassification(relativeKey, SampleFolderClassification.EMPTY);
-                    result.addSampleError(relativeKey, e.getMessage());
-                }
-            }
+            Path targetOrderDir = splitDir.resolve(orderDir.getFileName().toString());
+            processSingleOrder(orderDir, targetOrderDir, result);
         }
 
         return result;
+    }
+
+    /**
+     * 拆分单个订单目录
+     *
+     * @param orderDir       订单源目录
+     * @param targetOrderDir 订单目标目录
+     * @return 拆分结果
+     * @throws IOException IO 异常
+     */
+    public SplitBatchResult splitSingleOrder(Path orderDir, Path targetOrderDir) throws IOException {
+        SplitBatchResult result = new SplitBatchResult();
+        processSingleOrder(orderDir, targetOrderDir, result);
+        return result;
+    }
+
+    private void processSingleOrder(Path orderDir, Path targetOrderDir, SplitBatchResult result) throws IOException {
+        String orderName = orderDir.getFileName().toString();
+        Files.createDirectories(targetOrderDir);
+
+        List<Path> sampleDirs = listDirectories(orderDir);
+        for (Path sampleDir : sampleDirs) {
+            String sampleName = sampleDir.getFileName().toString();
+            String relativeKey = orderName + "/" + sampleName;
+            Path targetSampleDir = targetOrderDir.resolve(sampleName);
+
+            try {
+                SampleFolderClassification classification = splitSample(sampleDir, targetSampleDir);
+                result.addClassification(relativeKey, classification);
+                log.debug("样品拆分完成：{} -> {}", relativeKey, classification);
+            } catch (Exception e) {
+                log.error("样品拆分异常：{}", relativeKey, e);
+                result.addClassification(relativeKey, SampleFolderClassification.EMPTY);
+                result.addSampleError(relativeKey, e.getMessage());
+            }
+        }
     }
 
     /**
@@ -80,6 +98,13 @@ public class FileSplitterService {
      * @throws IOException IO 异常
      */
     private SampleFolderClassification splitSample(Path sampleSourceDir, Path sampleTargetDir) throws IOException {
+        // 若样品根目录下仅含一个 reference_analysis 子目录，直接视为空白
+        if (isOnlyReferenceAnalysis(sampleSourceDir)) {
+            log.debug("样品仅含 reference_analysis 子目录，标记为空白：{}", sampleSourceDir.getFileName());
+            Files.createDirectories(sampleTargetDir);
+            return SampleFolderClassification.EMPTY;
+        }
+
         Path actualSource = resolveActualSourceDir(sampleSourceDir);
 
         // 收集各类文件
@@ -95,6 +120,7 @@ public class FileSplitterService {
 
         if (!hasAny) {
             log.debug("样品无有效产物，标记为空白：{}", sampleSourceDir.getFileName());
+            Files.createDirectories(sampleTargetDir);
             return SampleFolderClassification.EMPTY;
         }
 
@@ -113,6 +139,24 @@ public class FileSplitterService {
         }
 
         return SampleFolderClassification.NORMAL;
+    }
+
+    /**
+     * 判断样品根目录是否仅含一个 reference_analysis 子目录（无其他文件/目录）
+     */
+    private boolean isOnlyReferenceAnalysis(Path sampleDir) throws IOException {
+        if (!Files.isDirectory(sampleDir)) {
+            return false;
+        }
+        try (var stream = Files.list(sampleDir)) {
+            List<Path> entries = stream.toList();
+            if (entries.size() != 1) {
+                return false;
+            }
+            Path only = entries.get(0);
+            return Files.isDirectory(only)
+                    && only.getFileName().toString().equalsIgnoreCase("reference_analysis");
+        }
     }
 
     /**
@@ -185,7 +229,7 @@ public class FileSplitterService {
     private List<Path> filterSequence(List<Path> files) {
         List<Path> ab1Files = files.stream()
                 .filter(f -> SEQUENCE_AB1_EXTENSIONS.contains(getExtension(f).toLowerCase()))
-                .collect(Collectors.toList());
+                .toList();
 
         List<Path> rawFasta = files.stream()
                 .filter(f -> SEQUENCE_FASTA_EXTENSIONS.contains(getExtension(f).toLowerCase()))

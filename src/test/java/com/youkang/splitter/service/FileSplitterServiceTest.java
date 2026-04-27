@@ -169,12 +169,14 @@ class FileSplitterServiceTest {
                     "YK00000007-H02",
                     "YK00000008-H02w",
                     "YK00000009-D06",
-                    "YK00000018-qAC241wno"
+                    "YK00000018-qAC241wno",
+                    "YK00000020-cAC241no",
+                    "YK00000023-qAC97no"
             };
             for (String sample : emptySamples) {
                 Path sampleDir = orderDir.resolve(sample);
-                assertTrue(!Files.exists(sampleDir) || collectRelativeFiles(sampleDir).isEmpty(),
-                        "空白样品应无文件：" + sample);
+                assertTrue(Files.isDirectory(sampleDir), "空白样品目录应存在：" + sample);
+                assertTrue(collectRelativeFiles(sampleDir).isEmpty(), "空白样品应无文件：" + sample);
             }
         } finally {
             deleteDirectory(target);
@@ -192,6 +194,41 @@ class FileSplitterServiceTest {
         } finally {
             deleteDirectory(emptySource);
             deleteDirectory(target);
+        }
+    }
+
+    @Test
+    void testEmptySamplesSurvivePackaging() throws Exception {
+        // 端到端验证：拆分 -> 打包 -> 解压后，空白样品目录仍然存在
+        Path splitDir = Files.createTempDirectory("split-");
+        Path zipFile = Files.createTempFile("output", ".zip");
+        Path extractDir = Files.createTempDirectory("extract-");
+        try {
+            service.split(SOURCE_BASE, splitDir);
+
+            ZipPackager packager = new ZipPackager();
+            packager.packageDir(splitDir, zipFile);
+
+            ZipExtractor extractor = new ZipExtractor();
+            extractor.extract(zipFile, extractDir);
+
+            String[] emptySamples = {
+                    "YK00000007-H02",
+                    "YK00000008-H02w",
+                    "YK00000009-D06",
+                    "YK00000018-qAC241wno",
+                    "YK00000020-cAC241no",
+                    "YK00000023-qAC97no"
+            };
+            for (String sample : emptySamples) {
+                Path sampleDir = extractDir.resolve("SDHZ00001").resolve(sample);
+                assertTrue(Files.isDirectory(sampleDir),
+                        "打包解压后空白样品目录应仍然存在：" + sample);
+            }
+        } finally {
+            deleteDirectory(splitDir);
+            deleteDirectory(extractDir);
+            Files.deleteIfExists(zipFile);
         }
     }
 

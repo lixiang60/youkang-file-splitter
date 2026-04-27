@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>有康文件拆分服务 - 部署手册</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.8;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: #fff;
+            padding: 50px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        h1 {
+            color: #1a73e8;
+            border-bottom: 3px solid #1a73e8;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            font-size: 32px;
+        }
+        h2 {
+            color: #2c5aa0;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e0e0e0;
+            font-size: 24px;
+        }
+        h3 {
+            color: #444;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+        .notice {
+            background: #e3f2fd;
+            border-left: 4px solid #1a73e8;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .notice p { margin: 0; }
+        code {
+            background: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: "Consolas", "Monaco", monospace;
+            font-size: 0.9em;
+            color: #c53929;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: "Consolas", "Monaco", monospace;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+            font-size: inherit;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px 15px;
+            text-align: left;
+        }
+        th {
+            background: #1a73e8;
+            color: #fff;
+            font-weight: 600;
+        }
+        tr:nth-child(even) { background: #f8f9fa; }
+        tr:hover { background: #e8f0fe; }
+        ol, ul { padding-left: 25px; }
+        li { margin: 8px 0; }
+        hr {
+            border: none;
+            border-top: 1px solid #e0e0e0;
+            margin: 30px 0;
+        }
+        .step {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 12px 20px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .warning {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 12px 20px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 12px 20px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        blockquote {
+            background: #f5f5f5;
+            border-left: 4px solid #9e9e9e;
+            padding: 12px 20px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #999;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>有康文件拆分服务 - 部署手册</h1>
+
+        <div class="notice">
+            <p><strong>提示：</strong>本文档面向运维人员，请按顺序执行每一步。</p>
+        </div>
+
+        <h2>一、准备工作</h2>
+
+        <h3>1.1 确认服务器已安装 Java 17</h3>
+        <p>在 Linux 服务器上执行：</p>
+        <pre><code>java -version</code></pre>
+        <p>如果显示类似下面的内容，说明已安装：</p>
+        <pre><code>openjdk version "17.0.x" 20xx-xx-xx</code></pre>
+        <p>如果未安装，请先安装 Java 17（联系管理员或使用包管理器安装）。</p>
+
+        <h3>1.2 确认 jar 包已准备好</h3>
+        <p>从开发人员处获取 <code>youkang-file-splitter.jar</code> 文件。</p>
+
+        <hr>
+
+        <h2>二、创建必要的文件夹</h2>
+        <p>在 Linux 服务器上依次执行以下命令，<strong>直接复制粘贴即可</strong>：</p>
+        <pre><code># 创建应用安装目录
+mkdir -p /opt/youkang-file-splitter
+
+# 创建数据目录（程序运行时需要的文件夹）
+mkdir -p /data/youkang/inbox
+mkdir -p /data/youkang/work
+mkdir -p /data/youkang/output
+mkdir -p /data/youkang/failed
+mkdir -p /data/youkang/archive
+
+# 创建日志目录
+mkdir -p /data/youkang/splitter/logs</code></pre>
+
+        <p><strong>文件夹说明：</strong></p>
+        <table>
+            <tr>
+                <th>文件夹路径</th>
+                <th>用途</th>
+            </tr>
+            <tr>
+                <td><code>/opt/youkang-file-splitter</code></td>
+                <td>存放 jar 包</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/inbox</code></td>
+                <td>用户上传 ZIP 文件的入口目录</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/work</code></td>
+                <td>程序解压和处理时的临时工作目录</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/output</code></td>
+                <td>拆分完成后的文件输出目录</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/failed</code></td>
+                <td>处理失败的文件归档目录</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/archive</code></td>
+                <td>处理成功的原始文件归档目录</td>
+            </tr>
+            <tr>
+                <td><code>/data/youkang/splitter/logs</code></td>
+                <td>程序运行日志目录</td>
+            </tr>
+        </table>
+
+        <hr>
+
+        <h2>三、上传 jar 包到服务器</h2>
+        <p>以下提供 <strong>3 种方式</strong>，选择任意一种即可。</p>
+
+        <h3>方式一：使用 scp 命令（推荐）</h3>
+        <div class="step">
+            <p><strong>在本地电脑（Windows 或 Mac）的终端/PowerShell 中执行：</strong></p>
+        </div>
+        <pre><code>scp youkang-file-splitter.jar root@服务器IP:/opt/youkang-file-splitter/</code></pre>
+        <p>执行后会提示输入服务器密码，输入即可。</p>
+        <p>示例（假设服务器 IP 是 192.168.1.100）：</p>
+        <pre><code>scp youkang-file-splitter.jar root@192.168.1.100:/opt/youkang-file-splitter/</code></pre>
+
+        <h3>方式二：使用 FTP/SFTP 工具（图形界面）</h3>
+        <p>使用 FileZilla、WinSCP 等工具连接服务器，将 <code>youkang-file-splitter.jar</code> 上传到 <code>/opt/youkang-file-splitter/</code> 目录。</p>
+
+        <h3>方式三：使用 rz 命令</h3>
+        <div class="step">
+            <p><strong>在 Linux 服务器上执行：</strong></p>
+        </div>
+        <pre><code>cd /opt/youkang-file-splitter
+rz</code></pre>
+        <p>然后会弹出文件选择窗口，选择本地的 <code>youkang-file-splitter.jar</code> 文件即可上传。</p>
+
+        <hr>
+
+        <h2>四、创建 systemd 服务</h2>
+        <p>systemd 服务可以实现<strong>开机自启</strong>和<strong>崩溃自动重启</strong>。</p>
+
+        <h3>4.1 创建服务配置文件</h3>
+        <div class="step">
+            <p><strong>在 Linux 服务器上执行以下完整命令（直接复制粘贴）：</strong></p>
+        </div>
+        <pre><code>cat > /etc/systemd/system/youkang-file-splitter.service << 'EOF'
+[Unit]
+Description=Youkang File Splitter Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/youkang-file-splitter
+ExecStart=/usr/bin/java -jar youkang-file-splitter.jar --spring.profiles.active=prod
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF</code></pre>
+
+        <h3>4.2 重新加载系统服务配置</h3>
+        <pre><code>systemctl daemon-reload</code></pre>
+
+        <hr>
+
+        <h2>五、启动服务</h2>
+
+        <h3>5.1 启动程序</h3>
+        <pre><code>systemctl start youkang-file-splitter</code></pre>
+
+        <h3>5.2 查看是否启动成功</h3>
+        <pre><code>systemctl status youkang-file-splitter</code></pre>
+        <p>如果显示 <code>active (running)</code>，说明启动成功：</p>
+        <pre><code>● youkang-file-splitter.service - Youkang File Splitter Service
+   Loaded: loaded (/etc/systemd/system/youkang-file-splitter.service; ...)
+   Active: active (running) since Mon 2024-01-15 10:00:00 CST; 5s ago</code></pre>
+        <p>如果显示 <code>failed</code>，请查看日志排查问题（见第六节）。</p>
+
+        <h3>5.3 设置开机自动启动</h3>
+        <pre><code>systemctl enable youkang-file-splitter</code></pre>
+        <div class="success">
+            <p>这样服务器重启后，程序会自动启动，无需手动干预。</p>
+        </div>
+
+        <hr>
+
+        <h2>六、常用运维命令</h2>
+
+        <table>
+            <tr>
+                <th>操作</th>
+                <th>命令</th>
+            </tr>
+            <tr>
+                <td>查看运行状态</td>
+                <td><code>systemctl status youkang-file-splitter</code></td>
+            </tr>
+            <tr>
+                <td>停止程序</td>
+                <td><code>systemctl stop youkang-file-splitter</code></td>
+            </tr>
+            <tr>
+                <td>重启程序</td>
+                <td><code>systemctl restart youkang-file-splitter</code></td>
+            </tr>
+            <tr>
+                <td>查看实时日志</td>
+                <td><code>journalctl -u youkang-file-splitter -f</code></td>
+            </tr>
+            <tr>
+                <td>查看历史日志</td>
+                <td><code>journalctl -u youkang-file-splitter</code></td>
+            </tr>
+            <tr>
+                <td>查看主日志文件</td>
+                <td><code>tail -f /data/youkang/splitter/logs/splitter.log</code></td>
+            </tr>
+            <tr>
+                <td>查看任务日志</td>
+                <td><code>tail -f /data/youkang/splitter/logs/splitter.log.task</code></td>
+            </tr>
+        </table>
+
+        <div class="notice">
+            <p><strong>提示：</strong>按 <code>Ctrl + C</code> 退出日志实时查看。</p>
+        </div>
+
+        <hr>
+
+        <h2>七、部署验证</h2>
+
+        <h3>7.1 检查进程是否在运行</h3>
+        <pre><code>ps -ef | grep youkang-file-splitter</code></pre>
+        <p>应该能看到 java 进程。</p>
+
+        <h3>7.2 检查日志是否正常输出</h3>
+        <pre><code>tail -20 /data/youkang/splitter/logs/splitter.log</code></pre>
+        <p>应该能看到程序启动的日志信息。</p>
+
+        <h3>7.3 测试文件拆分功能</h3>
+        <ol>
+            <li>准备一个包含生信产物的文件夹</li>
+            <li>将文件夹放入 <code>/data/youkang/inbox</code> 目录</li>
+            <li>等待 1 分钟左右</li>
+            <li>检查 <code>/data/youkang/output</code> 目录是否有拆分后的文件</li>
+            <li>检查 <code>/data/youkang/archive</code> 目录是否有原始文件夹归档</li>
+        </ol>
+
+        <hr>
+
+        <h2>八、更新程序（后续升级）</h2>
+        <p>当开发人员提供新版本 jar 包时：</p>
+        <pre><code># 1. 停止旧版本
+systemctl stop youkang-file-splitter
+
+# 2. 上传新的 jar 包到 /opt/youkang-file-splitter/
+# （参考第三节的上传方式）
+
+# 3. 启动新版本
+systemctl start youkang-file-splitter
+
+# 4. 查看状态确认正常
+systemctl status youkang-file-splitter</code></pre>
+
+        <hr>
+
+        <h2>九、常见问题</h2>
+
+        <h3>Q1: 启动失败，提示 "Failed to start"</h3>
+        <p><strong>排查步骤：</strong></p>
+        <pre><code># 查看详细错误信息
+journalctl -u youkang-file-splitter -n 50</code></pre>
+        <div class="warning">
+            <p><strong>常见原因：</strong></p>
+            <ul>
+                <li>Java 未安装或版本不对（需要 Java 17）</li>
+                <li>jar 包没有上传成功或路径不对</li>
+                <li><code>/data/youkang</code> 目录没有创建</li>
+            </ul>
+        </div>
+
+        <h3>Q2: 程序运行了但没有处理文件</h3>
+        <p><strong>检查：</strong></p>
+        <pre><code># 检查 inbox 目录权限
+ls -la /data/youkang/inbox
+
+# 检查日志是否有报错
+tail -50 /data/youkang/splitter/logs/splitter.log</code></pre>
+
+        <h3>Q3: 如何修改扫描频率或其他配置</h3>
+        <div class="warning">
+            <p>配置文件在 jar 包内部，<strong>不能直接修改</strong>。需要联系开发人员重新打包，或通过在启动命令中添加参数覆盖。</p>
+        </div>
+
+        <hr>
+
+        <h2>十、目录结构总览</h2>
+        <p>部署完成后，服务器上的目录结构如下：</p>
+        <pre><code>/opt/
+└── youkang-file-splitter/
+    └── youkang-file-splitter.jar          # 程序文件
+
+/data/
+└── youkang/
+    ├── inbox/                             # 上传入口
+    ├── work/                              # 临时工作目录
+    ├── output/                            # 拆分结果输出
+    ├── failed/                            # 失败文件归档
+    ├── archive/                           # 成功文件归档
+    └── splitter/
+        └── logs/
+            ├── splitter.log               # 主日志
+            └── splitter.log.task          # 任务日志
+
+/etc/systemd/system/
+└── youkang-file-splitter.service          # 系统服务配置</code></pre>
+
+        <div class="footer">
+            <p>如有问题，请联系开发人员。</p>
+        </div>
+    </div>
+</body>
+</html>

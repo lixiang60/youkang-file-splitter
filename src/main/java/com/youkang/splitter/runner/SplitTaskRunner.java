@@ -18,7 +18,8 @@ import java.util.stream.Stream;
 
 /**
  * 单次扫描周期的任务编排器
- * 负责：扫描 -> 就绪检测 -> 移动 -> 解压 -> 拆分 -> 打包 -> 归档 -> 清理 -> 记录
+ * 负责：扫描 -> 拆分 -> 归档 -> 记录
+ * （ZIP 解压/打包已注释掉，当前直接处理文件夹）
  *
  * @author youkang
  */
@@ -28,9 +29,10 @@ import java.util.stream.Stream;
 public class SplitTaskRunner {
 
     private final SplitterProperties props;
-    private final ReadyChecker readyChecker;
-    private final ZipExtractor zipExtractor;
-    private final ZipPackager zipPackager;
+    // ZIP 相关服务已注释，后续如需恢复可直接启用
+    // private final ReadyChecker readyChecker;
+    // private final ZipExtractor zipExtractor;
+    // private final ZipPackager zipPackager;
     private final FileSplitterService fileSplitterService;
     private final TaskRecorder taskRecorder;
 
@@ -44,17 +46,67 @@ public class SplitTaskRunner {
             return;
         }
 
-        List<Path> zipFiles = listZipFiles(inboxDir);
-        if (zipFiles.isEmpty()) {
-            log.debug("本次扫描未发现待处理 zip 文件");
+        List<Path> orderDirs = listOrderDirs(inboxDir);
+        if (orderDirs.isEmpty()) {
+            log.debug("本次扫描未发现待处理订单目录");
             return;
         }
 
-        log.info("本次扫描发现 {} 个待处理 zip 文件", zipFiles.size());
-        for (Path zipFile : zipFiles) {
-            processSingleZip(zipFile);
+        log.info("本次扫描发现 {} 个待处理订单目录", orderDirs.size());
+        for (Path orderDir : orderDirs) {
+            processSingleOrder(orderDir);
         }
     }
+
+    private void processSingleOrder(Path orderDir) {
+        String orderName = orderDir.getFileName().toString();
+
+        String taskId = taskRecorder.start(orderName, 0L);
+        SplitOutcome outcome = new SplitOutcome();
+        outcome.setTaskId(taskId);
+        outcome.setZipName(orderName);
+        outcome.setZipSizeBytes(0L);
+        outcome.setStartTime(java.time.LocalDateTime.now());
+
+        try {
+            Path outputDir = Paths.get(props.getOutputDir());
+            Files.createDirectories(outputDir);
+            Path targetOrderDir = outputDir.resolve(orderName);
+
+            SplitBatchResult batchResult = fileSplitterService.splitSingleOrder(orderDir, targetOrderDir);
+
+            outcome.setOrderCount(1);
+            outcome.setSampleTotal(batchResult.getClassifications().size());
+            outcome.setSampleNormal((int) batchResult.getClassifications().values().stream()
+                    .filter(c -> c == SampleFolderClassification.NORMAL).count());
+            outcome.setSampleEmpty((int) batchResult.getClassifications().values().stream()
+                    .filter(c -> c == SampleFolderClassification.EMPTY).count());
+            outcome.setSampleFailed(batchResult.getSampleFailed());
+            batchResult.getErrorMessages().forEach(outcome::addSampleError);
+            outcome.setOutputZipPath(targetOrderDir.toString());
+
+            // 归档或删除原订单目录
+            archiveOrDeleteDir(orderDir);
+
+            if (batchResult.getSampleFailed() > 0) {
+                outcome.setStatus("PARTIAL_SUCCESS");
+                taskRecorder.markPartial(taskId, outcome);
+            } else {
+                outcome.setStatus("SUCCESS");
+                taskRecorder.complete(taskId, outcome);
+            }
+
+        } catch (Exception e) {
+            log.error("订单处理失败：{}", orderName, e);
+            outcome.setStatus("FAILED");
+            outcome.setErrorMessage(truncate(e.getMessage()));
+            moveToFailed(orderDir);
+            taskRecorder.markFailed(taskId, orderName, outcome.getErrorMessage());
+        }
+    }
+
+    /*
+    // ========== ZIP 模式旧逻辑（已注释，后续可恢复） ==========
 
     private void processSingleZip(Path zipFile) {
         String zipName = zipFile.getFileName().toString();
@@ -66,13 +118,11 @@ public class SplitTaskRunner {
             return;
         }
 
-        // 1. 就绪检测
         if (!readyChecker.isReady(zipFile, props.getReadyCheckIntervalSeconds() * 1000L)) {
             log.info("文件尚未就绪，跳过：{}", zipName);
             return;
         }
 
-        // 2. 初始化任务记录
         String taskId = taskRecorder.start(zipName, zipSize);
         SplitOutcome outcome = new SplitOutcome();
         outcome.setTaskId(taskId);
@@ -82,24 +132,20 @@ public class SplitTaskRunner {
 
         Path workDir = null;
         try {
-            // 3. 创建工作目录并移动源文件
             String uuid = UUID.randomUUID().toString();
             workDir = Paths.get(props.getWorkDir()).resolve(uuid);
             Files.createDirectories(workDir);
             Path sourceZip = workDir.resolve("source.zip");
             moveWithRetry(zipFile, sourceZip);
 
-            // 4. 解压
             Path extractedDir = workDir.resolve("extracted");
             Files.createDirectories(extractedDir);
             zipExtractor.extract(sourceZip, extractedDir);
 
-            // 5. 拆分
             Path splitDir = workDir.resolve("split");
             Files.createDirectories(splitDir);
             SplitBatchResult batchResult = fileSplitterService.split(extractedDir, splitDir);
 
-            // 统计
             outcome.setOrderCount((int) Files.list(extractedDir).filter(Files::isDirectory).count());
             outcome.setSampleTotal(batchResult.getClassifications().size());
             outcome.setSampleNormal((int) batchResult.getClassifications().values().stream()
@@ -109,17 +155,14 @@ public class SplitTaskRunner {
             outcome.setSampleFailed(batchResult.getSampleFailed());
             batchResult.getErrorMessages().forEach(outcome::addSampleError);
 
-            // 6. 重新打包
             Path outputDir = Paths.get(props.getOutputDir());
             Files.createDirectories(outputDir);
             Path outputZip = outputDir.resolve(zipName);
             zipPackager.packageDir(splitDir, outputZip);
             outcome.setOutputZipPath(outputZip.toString());
 
-            // 7. 归档或删除原文件
             archiveOrDelete(sourceZip);
 
-            // 8. 状态判定
             if (batchResult.getSampleFailed() > 0) {
                 outcome.setStatus("PARTIAL_SUCCESS");
                 taskRecorder.markPartial(taskId, outcome);
@@ -135,17 +178,18 @@ public class SplitTaskRunner {
             moveToFailed(zipFile);
             taskRecorder.markFailed(taskId, zipName, outcome.getErrorMessage());
         } finally {
-            // 9. 清理工作目录
             if (workDir != null) {
                 deleteDirectoryWithRetry(workDir);
             }
         }
     }
+    */
 
-    private List<Path> listZipFiles(Path dir) {
+    // ===================== 文件夹处理辅助方法 =====================
+
+    private List<Path> listOrderDirs(Path dir) {
         try (Stream<Path> stream = Files.list(dir)) {
-            return stream.filter(Files::isRegularFile)
-                    .filter(f -> f.getFileName().toString().toLowerCase().endsWith(".zip"))
+            return stream.filter(Files::isDirectory)
                     .sorted()
                     .collect(Collectors.toList());
         } catch (IOException e) {
@@ -154,50 +198,34 @@ public class SplitTaskRunner {
         }
     }
 
-    private void moveWithRetry(Path source, Path target) throws IOException {
-        int retries = props.getRetryTimes();
-        long interval = props.getRetryIntervalMs();
-        for (int i = 0; i <= retries; i++) {
-            try {
-                Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-                return;
-            } catch (IOException e) {
-                if (i == retries) {
-                    throw new IOException("移动文件失败（重试" + retries + "次）：" + source + " -> " + target, e);
-                }
-                log.warn("文件移动失败，{}ms 后重试 ({}/{})：{}", interval, i + 1, retries, source);
-                try {
-                    Thread.sleep(interval);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("移动文件线程被中断", ie);
-                }
-            }
-        }
-    }
-
-    private void archiveOrDelete(Path sourceZip) throws IOException {
+    private void archiveOrDeleteDir(Path orderDir) throws IOException {
         if (props.isDeleteAfterArchive()) {
-            Files.deleteIfExists(sourceZip);
-            log.debug("已删除源 zip：{}", sourceZip.getFileName());
+            deleteDirectoryWithRetry(orderDir);
+            log.debug("已删除原订单目录：{}", orderDir.getFileName());
         } else {
             Path archiveDir = Paths.get(props.getArchiveDir());
             Files.createDirectories(archiveDir);
-            Path target = archiveDir.resolve(sourceZip.getFileName());
-            Files.move(sourceZip, target, StandardCopyOption.REPLACE_EXISTING);
-            log.debug("已归档源 zip：{}", target);
+            Path target = archiveDir.resolve(orderDir.getFileName());
+            if (Files.exists(target)) {
+                deleteDirectoryWithRetry(target);
+            }
+            Files.move(orderDir, target, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("已归档原订单目录：{}", target);
         }
     }
 
-    private void moveToFailed(Path originalZip) {
+    private void moveToFailed(Path orderDir) {
         try {
             Path failedDir = Paths.get(props.getFailedDir());
             Files.createDirectories(failedDir);
-            Path target = failedDir.resolve(originalZip.getFileName());
-            Files.move(originalZip, target, StandardCopyOption.REPLACE_EXISTING);
-            log.info("已将异常 zip 移至失败目录：{}", target);
+            Path target = failedDir.resolve(orderDir.getFileName());
+            if (Files.exists(target)) {
+                deleteDirectoryWithRetry(target);
+            }
+            Files.move(orderDir, target, StandardCopyOption.REPLACE_EXISTING);
+            log.info("已将异常订单目录移至失败目录：{}", target);
         } catch (IOException e) {
-            log.error("移动异常 zip 到失败目录失败：{}", originalZip, e);
+            log.error("移动异常订单目录到失败目录失败：{}", orderDir, e);
         }
     }
 
@@ -209,7 +237,7 @@ public class SplitTaskRunner {
                 return;
             } catch (Exception e) {
                 if (i == retries) {
-                    log.error("清理工作目录失败：{}", dir, e);
+                    log.error("清理目录失败：{}", dir, e);
                     return;
                 }
                 try {
