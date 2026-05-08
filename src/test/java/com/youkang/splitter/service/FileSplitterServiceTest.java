@@ -198,6 +198,53 @@ class FileSplitterServiceTest {
     }
 
     @Test
+    void testInPlaceSplit_doesNotReEnterClassificationDirs() throws IOException {
+        // 验证原地拆分时，已存在的 Bam/Var/Sequence/QC 子目录不会被重复处理
+        Path orderDir = Files.createTempDirectory("order-");
+        Path sampleDir = orderDir.resolve("YK00000001");
+        Files.createDirectories(sampleDir);
+        try {
+            // 在样品目录下创建原始文件
+            Files.write(sampleDir.resolve("test.bam"), "bam".getBytes());
+            Files.write(sampleDir.resolve("test_filtered.csv"), "var".getBytes());
+            Files.write(sampleDir.resolve("test.ab1"), "ab1".getBytes());
+            Files.write(sampleDir.resolve("test.coverage.png"), "qc".getBytes());
+
+            // 第一次拆分（原地：源目录与目标目录相同）
+            SplitBatchResult result1 = service.splitSingleOrder(orderDir, orderDir);
+            assertEquals(1, result1.getClassifications().size());
+            assertEquals(SampleFolderClassification.NORMAL,
+                    result1.getClassifications().values().iterator().next());
+
+            Set<String> filesAfterFirst = collectRelativeFiles(sampleDir);
+            assertTrue(filesAfterFirst.contains("Bam/test.bam"));
+            assertTrue(filesAfterFirst.contains("Var/test_filtered.csv"));
+            assertTrue(filesAfterFirst.contains("Sequence/test.ab1"));
+            assertTrue(filesAfterFirst.contains("QC/test.coverage.png"));
+
+            // 在已有分类目录中放入额外文件（模拟干扰）
+            Files.write(sampleDir.resolve("Bam/extra.bam"), "extra".getBytes());
+
+            // 第二次原地拆分（模拟重复处理）
+            SplitBatchResult result2 = service.splitSingleOrder(orderDir, orderDir);
+            assertEquals(1, result2.getClassifications().size());
+
+            // 验证已存在的分类目录没有被当作源文件重新遍历和复制
+            Set<String> filesAfterSecond = collectRelativeFiles(sampleDir);
+            assertFalse(filesAfterSecond.contains("Bam/Bam/extra.bam"),
+                    "不应在分类目录内嵌套新的分类目录");
+            assertFalse(filesAfterSecond.contains("Sequence/extra.bam"),
+                    "不应将分类目录内的文件错误复制到其他分类目录");
+
+            // 验证原始文件仍然只存在一份（根目录的源文件 + Bam 下的副本）
+            long bamCount = filesAfterSecond.stream().filter(f -> f.endsWith("test.bam")).count();
+            assertEquals(2, bamCount, "根目录源文件 + Bam 下副本共两份");
+        } finally {
+            deleteDirectory(orderDir);
+        }
+    }
+
+    @Test
     void testEmptySamplesSurvivePackaging() throws Exception {
         // 端到端验证：拆分 -> 打包 -> 解压后，空白样品目录仍然存在
         Path splitDir = Files.createTempDirectory("split-");

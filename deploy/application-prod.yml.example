@@ -6,10 +6,11 @@ spring:
     banner-mode: "off"
 
 splitter:
-  inbox-dir: /data/youkang/inbox
-  work-dir: /data/youkang/work
-  output-dir: /data/youkang/output
-  failed-dir: /data/youkang/failed
+  # Seq 入口目录：扫描该目录下的所有文件夹作为订单
+  inbox-dir: /data/youkang/Seq
+  # 结果目录：拆分后的 Bam/Var/Sequence/QC 输出位置
+  result-dir: /data/youkang/Result
+  # 归档目录：处理完成后的原始订单归档
   archive-dir: /data/youkang/archive
   scan-cron: "0 */1 * * * ?"
   ready-check-interval-seconds: 10

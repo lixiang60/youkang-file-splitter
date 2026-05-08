@@ -170,8 +170,10 @@ public class FileSplitterService {
         return sampleDir;
     }
 
+    private static final Set<String> EXCLUDED_SPLIT_DIRS = Set.of("Bam", "Var", "Sequence", "QC");
+
     /**
-     * 递归列出目录下所有常规文件
+     * 递归列出目录下所有常规文件，排除已生成的分类子目录（防止重复处理时进入）
      */
     private List<Path> listAllFiles(Path dir) throws IOException {
         if (!Files.exists(dir) || !Files.isDirectory(dir)) {
@@ -179,6 +181,14 @@ public class FileSplitterService {
         }
         List<Path> files = new ArrayList<>();
         Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (EXCLUDED_SPLIT_DIRS.contains(dir.getFileName().toString())) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (attrs.isRegularFile()) {

@@ -5,4 +5,4 @@ spring:
     web-application-type: none
     banner-mode: "off"
   profiles:
-    active: dev
+    active: prod

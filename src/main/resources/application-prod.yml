@@ -1,14 +1,10 @@
 # 生产环境配置
 splitter:
-  # 入口目录：用户上传 zip 的位置
-  inbox-dir: /data/youkang/inbox
-  # 工作目录：解压与中间产物
-  work-dir: /data/youkang/work
-  # 输出目录：拆分后的 zip 输出
-  output-dir: /data/youkang/output
-  # 失败目录：异常的原始 zip 隔离归档
-  failed-dir: /data/youkang/failed
-  # 归档目录：成功处理后的原始 zip 归档
+  # Seq 入口目录：扫描该目录下的所有文件夹作为订单
+  inbox-dir: /data/youkang/Seq
+  # 结果目录：拆分后的 Bam/Var/Sequence/QC 输出位置
+  result-dir: /data/youkang/results
+  # 归档目录：处理完成后的原始订单归档
   archive-dir: /data/youkang/archive
   # 扫描周期 cron 表达式（默认每分钟扫描一次）
   scan-cron: "0 */1 * * * ?"

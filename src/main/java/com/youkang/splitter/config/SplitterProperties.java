@@ -17,23 +17,15 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "splitter")
 public class SplitterProperties {
 
-    /** 入口目录：用户上传 zip 的位置 */
+    /** 入口目录：Seq 目录，扫描该目录下的所有文件夹作为订单 */
     @NotBlank
     private String inboxDir;
 
-    /** 工作目录：解压与中间产物 */
+    /** 结果目录：拆分后的 Bam/Var/Sequence/QC 输出位置 */
     @NotBlank
-    private String workDir;
+    private String resultDir;
 
-    /** 输出目录：拆分后 zip 输出 */
-    @NotBlank
-    private String outputDir;
-
-    /** 失败目录：异常的原始 zip 隔离归档 */
-    @NotBlank
-    private String failedDir;
-
-    /** 归档目录：成功处理后的原始 zip 归档 */
+    /** 归档目录：处理完成后的原始订单归档 */
     @NotBlank
     private String archiveDir;
 

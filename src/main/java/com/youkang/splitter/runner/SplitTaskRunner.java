@@ -12,7 +12,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -29,24 +28,21 @@ import java.util.stream.Stream;
 public class SplitTaskRunner {
 
     private final SplitterProperties props;
-    // ZIP 相关服务已注释，后续如需恢复可直接启用
-    // private final ReadyChecker readyChecker;
-    // private final ZipExtractor zipExtractor;
-    // private final ZipPackager zipPackager;
     private final FileSplitterService fileSplitterService;
     private final TaskRecorder taskRecorder;
 
     /**
      * 执行一次扫描与处理
+     * 扫描 /data/youkang/Seq/ 下的所有文件夹，进入后查找 results 或 07_results 子目录作为实际订单入口
      */
     public void run() {
-        Path inboxDir = Paths.get(props.getInboxDir());
-        if (!Files.exists(inboxDir)) {
-            log.warn("入口目录不存在：{}", inboxDir);
+        Path seqDir = Paths.get(props.getInboxDir());
+        if (!Files.exists(seqDir)) {
+            log.warn("Seq 目录不存在：{}", seqDir);
             return;
         }
 
-        List<Path> orderDirs = listOrderDirs(inboxDir);
+        List<Path> orderDirs = listDirectories(seqDir);
         if (orderDirs.isEmpty()) {
             log.debug("本次扫描未发现待处理订单目录");
             return;
@@ -61,6 +57,19 @@ public class SplitTaskRunner {
     private void processSingleOrder(Path orderDir) {
         String orderName = orderDir.getFileName().toString();
 
+        // 查找 results 或 07_results 子目录
+        Path resultsDir = findResultsDir(orderDir);
+        if (resultsDir == null) {
+            log.warn("订单目录下未找到 results 或 07_results，跳过：{}", orderDir);
+            return;
+        }
+
+        List<Path> samples = listDirectories(resultsDir);
+        if (samples.isEmpty()) {
+            log.debug("results 目录下无样品，跳过：{}", resultsDir);
+            return;
+        }
+
         String taskId = taskRecorder.start(orderName, 0L);
         SplitOutcome outcome = new SplitOutcome();
         outcome.setTaskId(taskId);
@@ -69,11 +78,12 @@ public class SplitTaskRunner {
         outcome.setStartTime(java.time.LocalDateTime.now());
 
         try {
-            Path outputDir = Paths.get(props.getOutputDir());
-            Files.createDirectories(outputDir);
-            Path targetOrderDir = outputDir.resolve(orderName);
+            Path resultDir = Paths.get(props.getResultDir());
+            Files.createDirectories(resultDir);
+            Path targetOrderDir = resultDir.resolve(orderName);
 
-            SplitBatchResult batchResult = fileSplitterService.splitSingleOrder(orderDir, targetOrderDir);
+            // 拆分：从 resultsDir 到 resultDir/orderName
+            SplitBatchResult batchResult = fileSplitterService.splitSingleOrder(resultsDir, targetOrderDir);
 
             outcome.setOrderCount(1);
             outcome.setSampleTotal(batchResult.getClassifications().size());
@@ -85,9 +95,6 @@ public class SplitTaskRunner {
             batchResult.getErrorMessages().forEach(outcome::addSampleError);
             outcome.setOutputZipPath(targetOrderDir.toString());
 
-            // 归档或删除原订单目录
-            archiveOrDeleteDir(orderDir);
-
             if (batchResult.getSampleFailed() > 0) {
                 outcome.setStatus("PARTIAL_SUCCESS");
                 taskRecorder.markPartial(taskId, outcome);
@@ -95,105 +102,49 @@ public class SplitTaskRunner {
                 outcome.setStatus("SUCCESS");
                 taskRecorder.complete(taskId, outcome);
             }
+            archiveOrDeleteDir(orderDir);
 
         } catch (Exception e) {
             log.error("订单处理失败：{}", orderName, e);
             outcome.setStatus("FAILED");
             outcome.setErrorMessage(truncate(e.getMessage()));
-            moveToFailed(orderDir);
             taskRecorder.markFailed(taskId, orderName, outcome.getErrorMessage());
-        }
-    }
-
-    /*
-    // ========== ZIP 模式旧逻辑（已注释，后续可恢复） ==========
-
-    private void processSingleZip(Path zipFile) {
-        String zipName = zipFile.getFileName().toString();
-        long zipSize;
-        try {
-            zipSize = Files.size(zipFile);
-        } catch (IOException e) {
-            log.error("无法读取文件大小：{}", zipFile, e);
-            return;
-        }
-
-        if (!readyChecker.isReady(zipFile, props.getReadyCheckIntervalSeconds() * 1000L)) {
-            log.info("文件尚未就绪，跳过：{}", zipName);
-            return;
-        }
-
-        String taskId = taskRecorder.start(zipName, zipSize);
-        SplitOutcome outcome = new SplitOutcome();
-        outcome.setTaskId(taskId);
-        outcome.setZipName(zipName);
-        outcome.setZipSizeBytes(zipSize);
-        outcome.setStartTime(java.time.LocalDateTime.now());
-
-        Path workDir = null;
-        try {
-            String uuid = UUID.randomUUID().toString();
-            workDir = Paths.get(props.getWorkDir()).resolve(uuid);
-            Files.createDirectories(workDir);
-            Path sourceZip = workDir.resolve("source.zip");
-            moveWithRetry(zipFile, sourceZip);
-
-            Path extractedDir = workDir.resolve("extracted");
-            Files.createDirectories(extractedDir);
-            zipExtractor.extract(sourceZip, extractedDir);
-
-            Path splitDir = workDir.resolve("split");
-            Files.createDirectories(splitDir);
-            SplitBatchResult batchResult = fileSplitterService.split(extractedDir, splitDir);
-
-            outcome.setOrderCount((int) Files.list(extractedDir).filter(Files::isDirectory).count());
-            outcome.setSampleTotal(batchResult.getClassifications().size());
-            outcome.setSampleNormal((int) batchResult.getClassifications().values().stream()
-                    .filter(c -> c == SampleFolderClassification.NORMAL).count());
-            outcome.setSampleEmpty((int) batchResult.getClassifications().values().stream()
-                    .filter(c -> c == SampleFolderClassification.EMPTY).count());
-            outcome.setSampleFailed(batchResult.getSampleFailed());
-            batchResult.getErrorMessages().forEach(outcome::addSampleError);
-
-            Path outputDir = Paths.get(props.getOutputDir());
-            Files.createDirectories(outputDir);
-            Path outputZip = outputDir.resolve(zipName);
-            zipPackager.packageDir(splitDir, outputZip);
-            outcome.setOutputZipPath(outputZip.toString());
-
-            archiveOrDelete(sourceZip);
-
-            if (batchResult.getSampleFailed() > 0) {
-                outcome.setStatus("PARTIAL_SUCCESS");
-                taskRecorder.markPartial(taskId, outcome);
-            } else {
-                outcome.setStatus("SUCCESS");
-                taskRecorder.complete(taskId, outcome);
-            }
-
-        } catch (Exception e) {
-            log.error("zip 处理失败：{}", zipName, e);
-            outcome.setStatus("FAILED");
-            outcome.setErrorMessage(truncate(e.getMessage()));
-            moveToFailed(zipFile);
-            taskRecorder.markFailed(taskId, zipName, outcome.getErrorMessage());
-        } finally {
-            if (workDir != null) {
-                deleteDirectoryWithRetry(workDir);
+            try {
+                archiveOrDeleteDir(orderDir);
+            } catch (IOException ioEx) {
+                log.error("归档失败订单目录失败：{}", orderDir, ioEx);
             }
         }
     }
-    */
+
 
     // ===================== 文件夹处理辅助方法 =====================
 
-    private List<Path> listOrderDirs(Path dir) {
+    /**
+     * 在订单目录下查找 results 或 07_results 子目录（两者只会存在一个）
+     */
+    private Path findResultsDir(Path orderDir) {
+        Path resultsDir = orderDir.resolve("results");
+        if (Files.exists(resultsDir) && Files.isDirectory(resultsDir)) {
+            return resultsDir;
+        }
+        Path results07Dir = orderDir.resolve("07_results");
+        if (Files.exists(results07Dir) && Files.isDirectory(results07Dir)) {
+            return results07Dir;
+        }
+        return null;
+    }
+
+    private List<Path> listDirectories(Path dir) {
+        if (!Files.exists(dir) || !Files.isDirectory(dir)) {
+            return List.of();
+        }
         try (Stream<Path> stream = Files.list(dir)) {
             return stream.filter(Files::isDirectory)
                     .sorted()
                     .collect(Collectors.toList());
         } catch (IOException e) {
-            log.error("扫描入口目录异常：{}", dir, e);
+            log.error("扫描目录异常：{}", dir, e);
             return List.of();
         }
     }
@@ -209,27 +160,13 @@ public class SplitTaskRunner {
             if (Files.exists(target)) {
                 deleteDirectoryWithRetry(target);
             }
-            Files.move(orderDir, target, StandardCopyOption.REPLACE_EXISTING);
+            // Windows 下 Files.move 对非空目录不支持 REPLACE_EXISTING，使用 commons-io
+            org.apache.commons.io.FileUtils.moveDirectory(orderDir.toFile(), target.toFile());
             log.debug("已归档原订单目录：{}", target);
         }
     }
 
-    private void moveToFailed(Path orderDir) {
-        try {
-            Path failedDir = Paths.get(props.getFailedDir());
-            Files.createDirectories(failedDir);
-            Path target = failedDir.resolve(orderDir.getFileName());
-            if (Files.exists(target)) {
-                deleteDirectoryWithRetry(target);
-            }
-            Files.move(orderDir, target, StandardCopyOption.REPLACE_EXISTING);
-            log.info("已将异常订单目录移至失败目录：{}", target);
-        } catch (IOException e) {
-            log.error("移动异常订单目录到失败目录失败：{}", orderDir, e);
-        }
-    }
-
-    private void deleteDirectoryWithRetry(Path dir) {
+    private void deleteDirectoryWithRetry(Path dir) throws IOException {
         int retries = props.getRetryTimes();
         for (int i = 0; i <= retries; i++) {
             try {
@@ -237,14 +174,13 @@ public class SplitTaskRunner {
                 return;
             } catch (Exception e) {
                 if (i == retries) {
-                    log.error("清理目录失败：{}", dir, e);
-                    return;
+                    throw new IOException("清理目录失败：" + dir, e);
                 }
                 try {
                     Thread.sleep(props.getRetryIntervalMs());
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    return;
+                    throw new IOException("清理目录被中断：" + dir, ie);
                 }
             }
         }
