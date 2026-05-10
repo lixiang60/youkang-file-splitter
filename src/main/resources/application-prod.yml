@@ -7,7 +7,7 @@ splitter:
   # 归档目录：处理完成后的原始订单归档
   archive-dir: /data/youkang/archive
   # 扫描周期 cron 表达式（默认每分钟扫描一次）
-  scan-cron: "0 */1 * * * ?"
+  scan-cron: "0 */5 * * * ?"
   # 文件就绪检测间隔（秒）：两次大小一致即视为上传完成
   ready-check-interval-seconds: 10
   # 归档完成后是否删除原始 zip

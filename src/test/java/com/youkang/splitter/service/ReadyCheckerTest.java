@@ -76,4 +76,41 @@ class ReadyCheckerTest {
         assertFalse(checker.isReady(fakeFile, 100L),
                 "不存在的文件应视为未就绪");
     }
+
+    @Test
+    void testIsDirectoryReady_stableDir_shouldReturnTrue() throws IOException {
+        Path tempDir = Files.createTempDirectory("ready-test-dir");
+        try {
+            Files.write(tempDir.resolve("file1.txt"), "content1".getBytes());
+            Files.write(tempDir.resolve("file2.txt"), "content2".getBytes());
+            assertTrue(checker.isDirectoryReady(tempDir, 100L),
+                    "稳定的目录应视为就绪");
+        } finally {
+            org.apache.commons.io.FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
+
+    @Test
+    void testIsDirectoryReady_emptyDir_shouldReturnFalse() throws IOException {
+        Path tempDir = Files.createTempDirectory("ready-test-empty-dir");
+        try {
+            assertFalse(checker.isDirectoryReady(tempDir, 100L),
+                    "空目录应视为未就绪");
+        } finally {
+            org.apache.commons.io.FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
+
+    @Test
+    void testIsDirectoryReady_withHiddenFile_shouldIgnoreHidden() throws IOException {
+        Path tempDir = Files.createTempDirectory("ready-test-hidden");
+        try {
+            Files.write(tempDir.resolve("normal.txt"), "content".getBytes());
+            Files.write(tempDir.resolve(".hidden"), "hidden content".getBytes());
+            assertTrue(checker.isDirectoryReady(tempDir, 100L),
+                    "隐藏文件应被忽略，稳定目录应视为就绪");
+        } finally {
+            org.apache.commons.io.FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 }

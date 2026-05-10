@@ -30,6 +30,7 @@ public class SplitTaskRunner {
     private final SplitterProperties props;
     private final FileSplitterService fileSplitterService;
     private final TaskRecorder taskRecorder;
+    private final ReadyChecker readyChecker;
 
     /**
      * 执行一次扫描与处理
@@ -61,6 +62,13 @@ public class SplitTaskRunner {
         Path resultsDir = findResultsDir(orderDir);
         if (resultsDir == null) {
             log.warn("订单目录下未找到 results 或 07_results，跳过：{}", orderDir);
+            return;
+        }
+
+        // 检测目录内文件是否已稳定（防止文件仍在上传/写入中）
+        long intervalMs = props.getReadyCheckIntervalSeconds() * 1000L;
+        if (!readyChecker.isDirectoryReady(resultsDir, intervalMs)) {
+            log.info("订单目录文件仍在变化，跳过本次处理：{}", orderName);
             return;
         }
 
