@@ -12,6 +12,11 @@ splitter:
   retry-times: 3
   retry-interval-ms: 1000
 
+splitter:
+  secondary:
+    enabled: true
+    scan-cron: "0 0 */1 * * ?"
+
 logging:
   file:
     name: D:/youkang/splitter/logs/splitter.log

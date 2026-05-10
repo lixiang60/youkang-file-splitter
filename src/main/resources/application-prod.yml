@@ -16,6 +16,9 @@ splitter:
   retry-times: 3
   # 文件锁定重试间隔（毫秒）
   retry-interval-ms: 2000
+  secondary:
+    enabled: true
+    scan-cron: "0 0 */1 * * ?"
 
 logging:
   file:

@@ -47,4 +47,17 @@ public class SplitterProperties {
     /** 文件锁定重试间隔（毫秒） */
     @Min(0)
     private long retryIntervalMs = 2000L;
+
+    /** 二次分类配置 */
+    private Secondary secondary = new Secondary();
+
+    @Data
+    public static class Secondary {
+
+        /** 是否启用二次分类 */
+        private boolean enabled = true;
+
+        /** 扫描 cron 表达式 */
+        private String scanCron = "0 0 */1 * * ?";
+    }
 }
