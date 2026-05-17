@@ -70,7 +70,7 @@ public class SecondaryClassificationService {
             Files.copy(excelFile, excelCopy, StandardCopyOption.REPLACE_EXISTING);
 
             // 1. 分板
-            splitByBoard(orderDir, outputDir, records, codeToFolder);
+            splitByBoard(orderDir, outputDir, records, codeToFolder, excelFile);
 
             // 2. 测序结果明细表
             generateDetailSheets(orderDir, outputDir, records, codeToFolder);
@@ -200,11 +200,12 @@ public class SecondaryClassificationService {
     }
 
     /**
-     * 分板：按板号归类样品文件夹
+     * 分板：按板号归类样品文件夹，并为每个板号生成独立的 Excel 明细表
      */
     private void splitByBoard(Path orderDir, Path outputDir, List<DetailRecord> records,
-                              Map<String, String> codeToFolder) throws IOException {
+                              Map<String, String> codeToFolder, Path excelFile) throws IOException {
         Path boardOutputDir = outputDir.resolve(orderDir.getFileName() + BOARD_SUFFIX);
+        List<String> originalHeaders = readExcelHeaders(excelFile);
 
         Map<String, List<DetailRecord>> boardGroups = records.stream()
                 .collect(Collectors.groupingBy(r -> r.getBoardNo() != null ? r.getBoardNo() : "未知板号"));
@@ -225,9 +226,70 @@ public class SecondaryClassificationService {
                     copyDirectory(source, target);
                 }
             }
+
+            writeBoardExcel(boardOutputDir, boardNo, originalHeaders, entry.getValue());
         }
 
         log.debug("分板完成：{} 个板号", boardGroups.size());
+    }
+
+    /**
+     * 读取 Excel 表头
+     */
+    private List<String> readExcelHeaders(Path excelFile) throws IOException {
+        try (Workbook workbook = WorkbookFactory.create(excelFile.toFile())) {
+            Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+            if (headerRow == null) {
+                return Collections.emptyList();
+            }
+            List<String> headers = new ArrayList<>();
+            for (int i = 0; i < headerRow.getLastCellNum(); i++) {
+                Cell cell = headerRow.getCell(i);
+                headers.add(cell != null ? getCellStringValue(cell) : "");
+            }
+            return headers;
+        }
+    }
+
+    /**
+     * 为单个板号生成 Excel 明细表
+     */
+    private void writeBoardExcel(Path boardDir, String boardNo,
+                                 List<String> headers, List<DetailRecord> boardRecords) throws IOException {
+        String fileName = boardNo + ".xlsx";
+        Path excelPath = boardDir.resolve(fileName);
+
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Sheet1");
+
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.size(); i++) {
+                headerRow.createCell(i).setCellValue(headers.get(i));
+            }
+
+            int rowNum = 1;
+            for (DetailRecord record : boardRecords) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(record.getProductionCode());
+                row.createCell(2).setCellValue(record.getOrderId());
+                row.createCell(4).setCellValue(record.getCustomerName());
+                row.createCell(5).setCellValue(record.getSampleCode());
+                row.createCell(6).setCellValue(record.getSequence());
+                row.createCell(7).setCellValue(record.getSampleType());
+                row.createCell(8).setCellValue(record.getSequencingProject());
+                row.createCell(10).setCellValue(record.getEstimatedFragmentSize());
+                row.createCell(13).setCellValue(record.getBoardNo());
+                row.createCell(14).setCellValue(record.getWellNo());
+                row.createCell(15).setCellValue(record.getBarcode());
+                row.createCell(16).setCellValue(record.getConcentration());
+                row.createCell(17).setCellValue(record.getRemark());
+            }
+
+            try (FileOutputStream fos = new FileOutputStream(excelPath.toFile())) {
+                workbook.write(fos);
+            }
+        }
     }
 
     /**
@@ -469,10 +531,10 @@ public class SecondaryClassificationService {
 
             // 合并 var 文件
             if (!varFilteredFiles.isEmpty()) {
-                mergeVarFilesToZip(zos, varFilteredFiles, "merged_data.filt.var.xls");
+                mergeVarFilesToZip(zos, varFilteredFiles, "merged_data.var.xls");
             }
             if (!varRawFiles.isEmpty()) {
-                mergeVarFilesToZip(zos, varRawFiles, "merged_data.var.xls");
+                mergeVarFilesToZip(zos, varRawFiles, "merged_data.filt.var.xls");
             }
         }
     }

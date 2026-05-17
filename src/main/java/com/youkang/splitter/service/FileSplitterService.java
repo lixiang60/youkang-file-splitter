@@ -143,6 +143,7 @@ public class FileSplitterService {
 
     /**
      * 判断样品根目录是否仅含一个 reference_analysis 子目录（无其他文件/目录）
+     * 或者：有 reference_analysis 子目录但同级没有 ab1 核心产物文件
      */
     private boolean isOnlyReferenceAnalysis(Path sampleDir) throws IOException {
         if (!Files.isDirectory(sampleDir)) {
@@ -150,12 +151,27 @@ public class FileSplitterService {
         }
         try (var stream = Files.list(sampleDir)) {
             List<Path> entries = stream.toList();
-            if (entries.size() != 1) {
-                return false;
+
+            boolean hasReferenceAnalysis = false;
+            boolean hasAb1 = false;
+
+            for (Path entry : entries) {
+                String name = entry.getFileName().toString();
+                if (Files.isDirectory(entry) && name.equalsIgnoreCase("reference_analysis")) {
+                    hasReferenceAnalysis = true;
+                }
+                if (Files.isRegularFile(entry) && getExtension(entry).equalsIgnoreCase("ab1")) {
+                    hasAb1 = true;
+                }
             }
-            Path only = entries.get(0);
-            return Files.isDirectory(only)
-                    && only.getFileName().toString().equalsIgnoreCase("reference_analysis");
+
+            // 仅含一个 reference_analysis 子目录
+            if (entries.size() == 1 && hasReferenceAnalysis) {
+                return true;
+            }
+
+            // 有 reference_analysis 但同级没有 ab1 文件
+            return hasReferenceAnalysis && !hasAb1;
         }
     }
 
